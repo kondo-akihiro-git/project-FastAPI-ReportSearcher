@@ -1,0 +1,20 @@
+# npmで復元できるライブラリ
+node_modules/
+
+# ビルドすると自動生成されるファイル
+dist/
+
+# 環境変数（APIキーなど）
+.env*
+
+# 開発環境ごとの設定ファイル
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ログファイル
+logs/
+*.log
+
+# OSが自動生成するファイル
+.DS_Store
