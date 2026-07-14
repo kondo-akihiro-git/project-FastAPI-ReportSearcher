@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from logic.login import login_portal
+from model.models import LoginRequest
+
 app = FastAPI()
 
 app.add_middleware(
@@ -13,9 +16,17 @@ app.add_middleware(
 
 
 @app.post("/login")
-def login():
+def login(req: LoginRequest):
+
+    success = login_portal(req)
+
+    if success:
+        return {
+            "message": "login-test"
+        }
+
     return {
-        "message": "login-test"
+        "message": "login-failed"
     }
 
 

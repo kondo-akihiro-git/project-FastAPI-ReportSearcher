@@ -1,21 +1,52 @@
 // frontend/src/pages/Login.tsx
 import { useNavigate } from "react-router-dom";
-import { Button, Container, TextField, Typography } from "@mui/material";
+import { Button, Container, Snackbar, TextField, Typography } from "@mui/material";
+import { useState } from "react";
 
 export default function Login() {
   const navigate = useNavigate();
+  const [basicUsername, setBasicUsername] = useState("");
+  const [basicPassword, setBasicPassword] = useState("");
+
+  const [portalUsername, setPortalUsername] = useState("");
+  const [portalPassword, setPortalPassword] = useState("");
+
+  const [open, setOpen] = useState(false);
 
   const login = async () => {
-    const res = await fetch("http://127.0.0.1:8000/login", {
-      method: "POST",
-    });
+
+    const res = await fetch(
+      "http://127.0.0.1:8000/login",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+
+          basic_username: basicUsername,
+          basic_password: basicPassword,
+
+          portal_username: portalUsername,
+          portal_password: portalPassword
+
+        })
+      }
+    );
 
     const data = await res.json();
 
     if (data.message === "login-test") {
-      navigate("/search");
+
+      setOpen(true);
+
+      setTimeout(() => {
+        navigate("/search");
+      }, 1000);
+
     }
-  };
+
+  }
 
   return (
     <Container maxWidth="sm" sx={{ mt: 8 }}>
@@ -24,16 +55,37 @@ export default function Login() {
       </Typography>
 
       <TextField
+        label="Basic認証ID"
         fullWidth
-        label="ユーザーID"
         margin="normal"
+        value={basicUsername}
+        onChange={(e) => setBasicUsername(e.target.value)}
       />
 
       <TextField
-        fullWidth
-        label="パスワード"
+        label="Basic認証Password"
         type="password"
+        fullWidth
         margin="normal"
+        value={basicPassword}
+        onChange={(e) => setBasicPassword(e.target.value)}
+      />
+
+      <TextField
+        label="ポータルID"
+        fullWidth
+        margin="normal"
+        value={portalUsername}
+        onChange={(e) => setPortalUsername(e.target.value)}
+      />
+
+      <TextField
+        label="ポータルPassword"
+        type="password"
+        fullWidth
+        margin="normal"
+        value={portalPassword}
+        onChange={(e) => setPortalPassword(e.target.value)}
       />
 
       <Button
@@ -44,6 +96,12 @@ export default function Login() {
       >
         保存
       </Button>
+      <Snackbar
+        open={open}
+        autoHideDuration={3000}
+        message="ログインしました"
+      />
     </Container>
+
   );
 }
