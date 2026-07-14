@@ -1,16 +1,23 @@
 // frontend/src/pages/Search.tsx
+import { useState } from "react";
 import {
-  Container,
-  Typography,
-  TextField,
   Button,
-  Divider,
-  List,
-  ListItem,
-  ListItemText,
+  Container,
+  TextField,
+  Typography,
 } from "@mui/material";
 
 export default function Search() {
+  const [result, setResult] = useState("");
+
+  const search = async () => {
+    const res = await fetch("http://127.0.0.1:8000/search");
+
+    const data = await res.json();
+
+    setResult(data.message);
+  };
+
   return (
     <Container maxWidth="md" sx={{ mt: 8 }}>
       <Typography variant="h4" gutterBottom>
@@ -18,50 +25,21 @@ export default function Search() {
       </Typography>
 
       <TextField
-        label="キーワード"
         fullWidth
-        margin="normal"
+        label="キーワード"
       />
 
       <Button
         variant="contained"
-        sx={{ mt: 2, mb: 4 }}
+        sx={{ mt: 2 }}
+        onClick={search}
       >
         検索
       </Button>
 
-      <Typography variant="body2" gutterBottom>
-        最終取得日時：2026/07/14 20:00
+      <Typography sx={{ mt: 4 }}>
+        {result}
       </Typography>
-
-      <Divider sx={{ my: 3 }} />
-
-      <Typography variant="h6" gutterBottom>
-        検索結果
-      </Typography>
-
-      <List>
-        <ListItem divider>
-          <ListItemText
-            primary="React導入について"
-            secondary="2026/07/13"
-          />
-        </ListItem>
-
-        <ListItem divider>
-          <ListItemText
-            primary="FastAPIのAPI設計"
-            secondary="2026/07/12"
-          />
-        </ListItem>
-
-        <ListItem>
-          <ListItemText
-            primary="AWS Lambdaの調査"
-            secondary="2026/07/11"
-          />
-        </ListItem>
-      </List>
     </Container>
   );
 }
