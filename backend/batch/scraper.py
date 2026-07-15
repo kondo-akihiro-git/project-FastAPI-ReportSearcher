@@ -1,10 +1,8 @@
 # backend/batch/scraper.py
-# 2024年1月〜今月までの週報をポータルから取得し、data/report/ にJSONで保存する
 import json
 import os
 import re
-import time
-from datetime import date
+from datetime import date, timedelta
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -14,17 +12,10 @@ load_dotenv()
 
 LOGIN_FILE = "data/login/login.json"
 REPORT_DIR = "data/report"
-
-START_YEAR_MONTH = (2024, 1)   # 固定の下限：2024年1月
+START_YEAR_MONTH = (2024, 1) 
 PAGE_TIMEOUT_MS = 45000
-MAX_RETRIES = 3
-RETRY_BACKOFF_SEC = 3  # 1回目失敗→3秒待機、2回目失敗→6秒待機...
-
-# ページを軽量化してタイムアウトを起きにくくするため、これらはブロックする
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
 
-
-# ---------- ユーティリティ ----------
 
 # ログイン情報一覧を読み込む
 def load_logins() -> list[dict]:
@@ -45,7 +36,6 @@ def get_weekly_report_url_base() -> str:
 def get_target_year_months() -> list[tuple[int, int]]:
     start_year, start_month = START_YEAR_MONTH
     today = date.today()
-
     result = []
     year, month = today.year, today.month
     while (year, month) >= (start_year, start_month):
@@ -82,22 +72,14 @@ def block_heavy_resources(page):
     page.route("**/*", handler)
 
 
-# ページ遷移。失敗時は指数バックオフで最大MAX_RETRIES回リトライする
-def goto_with_retry(page, url: str, label: str) -> bool:
-    last_error = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
-            return True
-        except Exception as e:
-            last_error = e
-            wait_sec = RETRY_BACKOFF_SEC * attempt
-            print(f"  [{label}] 失敗 ({attempt}/{MAX_RETRIES}): {e.__class__.__name__} "
-                  f"-> {wait_sec}秒後にリトライ")
-            time.sleep(wait_sec)
-
-    print(f"  [{label}] 全リトライ失敗、スキップします: {last_error}")
-    return False
+# ページ遷移する
+def goto(page, url: str) -> bool:
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+        return True
+    except Exception as e:
+        print(f"  ページ遷移失敗: {e}")
+        return False
 
 
 # その月に実際に存在する週番号一覧をセレクトボックスから取得する
@@ -111,7 +93,17 @@ def get_available_weeks(page) -> list[int]:
     return weeks
 
 
-# ---------- HTML抽出 ----------
+# 指定した年月・週番号の開始日(月曜)を求める。月初を含む週の月曜を基準に7日ずつ数える
+def get_week_start_date(year: int, month: int, week_num: int) -> date:
+    first_day = date(year, month, 1)
+    first_monday = first_day - timedelta(days=first_day.weekday())
+    return first_monday + timedelta(days=(week_num - 1) * 7)
+
+
+# まだ始まっていない(開始日が本日より後の)週を除外する
+def filter_started_weeks(year: int, month: int, weeks: list[int], today: date) -> list[int]:
+    return [w for w in weeks if get_week_start_date(year, month, w) <= today]
+
 
 # 『直近で学んだこと』『コメント欄』などのラベルを含むブロックのテキストを抽出する
 def extract_section(soup: BeautifulSoup, keyword: str) -> str:
@@ -132,27 +124,21 @@ def extract_daily_reports(soup: BeautifulSoup) -> list[dict]:
     table = soup.find("table", id="weekly_report_list")
     if table is None or table.find("tbody") is None:
         return reports
-
     for tr in table.find("tbody").find_all("tr"):
         tds = tr.find_all("td")
         if len(tds) < 4:
             continue
-
         report_date = tds[0].get_text(strip=True)
         content_td = tds[3]
-
         textarea = content_td.find("textarea")
         if textarea is not None:
             content = textarea.get_text().strip()
         else:
             readonly = content_td.find("div", class_="readonly_area")
             content = readonly.get_text("\n").strip() if readonly else ""
-
         if not content:
             continue
-
         reports.append({"date": report_date, "content": content})
-
     return reports
 
 
@@ -165,30 +151,23 @@ def extract_replies(soup: BeautifulSoup) -> dict:
     }
 
 
-# ページ全体から週報データを組み立てる。中身が空の週はNoneを返す
+# ページ全体から週報データを組み立てる
 def build_report(soup: BeautifulSoup, member_no: str, year_month: str, week_num: int) -> dict:
-    daily_reports = extract_daily_reports(soup)
-    studying_memo = extract_section(soup, "直近で学んだこと")
-    comment = extract_section(soup, "コメント欄")
-
     return {
         "year_month": year_month,
         "week_num": week_num,
         "member_no": member_no,
-        "daily_reports": daily_reports,
-        "studying_memo": studying_memo,
-        "comment": comment,
+        "daily_reports": extract_daily_reports(soup),
+        "studying_memo": extract_section(soup, "直近で学んだこと"),
+        "comment": extract_section(soup, "コメント欄"),
         "replies": extract_replies(soup),
     }
 
-
-# ---------- スクレイピング本体 ----------
 
 # 1ユーザー分、ログインしてから対象期間の週報を取得する
 def scrape_login(p, login: dict, weekly_report_url_base: str):
     username = login["portal_username"]
     member_no = login["member_no"]
-
     browser = p.chromium.launch(headless=True)
     context = browser.new_context(
         http_credentials={
@@ -198,113 +177,88 @@ def scrape_login(p, login: dict, weekly_report_url_base: str):
     )
     page = context.new_page()
     block_heavy_resources(page)
-
     portal_url = os.getenv("PORTAL_LOGIN_URL")
     top_url = os.getenv("PORTAL_TOP_URL")
-
-    if not goto_with_retry(page, portal_url, f"{username} ログインページ"):
+    if not goto(page, portal_url):
         print(f"ログインページに到達できませんでした: {username}")
         browser.close()
         return
-
     page.locator("input[name='login_id']").fill(login["portal_username"])
     page.locator("input[name='login_pass']").fill(login["portal_password"])
     page.locator("button[name='accept']").click()
     page.wait_for_load_state("domcontentloaded")
-
     if page.url != top_url:
         print(f"ログインに失敗しました: {username}")
         browser.close()
         return
-
-    year_months = [f"{y:04d}-{m:02d}" for y, m in get_target_year_months()]
+    target_year_months = get_target_year_months()
+    year_months = [f"{y:04d}-{m:02d}" for y, m in target_year_months]
     print(f"[{username}] 対象月: {', '.join(year_months)} ({len(year_months)}ヶ月)")
-
+    today = date.today()
     success_count = 0
     skip_count = 0
+    future_count = 0
     fail_count = 0
-
-    for year_month in year_months:
+    for year, month in target_year_months:
+        year_month = f"{year:04d}-{month:02d}"
         base_url = (f"{weekly_report_url_base}?member_no={member_no}"
                     f"&weekly_report_year_month={year_month}&weekly_report_week_num=1")
-
-        if not goto_with_retry(page, base_url, f"{year_month} 月一覧"):
+        if not goto(page, base_url):
             fail_count += 1
             continue
-
         weeks = get_available_weeks(page)
         if not weeks:
             continue
-
+        all_week_count = len(weeks)
+        weeks = filter_started_weeks(year, month, weeks, today)
+        future_count += all_week_count - len(weeks)
         for week_num in weeks:
             existing_path = report_filepath(username, member_no, year_month, week_num)
             if os.path.exists(existing_path):
                 skip_count += 1
                 continue
-
             url = (f"{weekly_report_url_base}?member_no={member_no}"
                    f"&weekly_report_year_month={year_month}&weekly_report_week_num={week_num}")
             label = f"{year_month} 第{week_num}週"
-
-            if not goto_with_retry(page, url, label):
+            if not goto(page, url):
                 fail_count += 1
                 continue
-
             soup = BeautifulSoup(page.content(), "html.parser")
             report = build_report(soup, member_no, year_month, week_num)
-            if report:
-                save_report(username, member_no, report)
-                success_count += 1
-
+            save_report(username, member_no, report)
+            success_count += 1
     browser.close()
-    print(f"[{username}] 完了: 保存 {success_count} / スキップ(既存) {skip_count} / 失敗 {fail_count}")
+    print(
+        f"[{username}] 完了: 保存 {success_count} / スキップ(既存) {skip_count} "
+        f"/ スキップ(未来週) {future_count} / 失敗 {fail_count}"
+    )
+
 
 def check_existing_reports(page, login: dict, weekly_report_url_base: str) -> bool:
     username = login["portal_username"]
     member_no = login["member_no"]
-
-    year_months = [
-        f"{y:04d}-{m:02d}"
-        for y, m in get_target_year_months()
-    ]
-
+    year_months = [f"{y:04d}-{m:02d}" for y, m in get_target_year_months()]
     for year_month in year_months:
-
         base_url = (
             f"{weekly_report_url_base}"
             f"?member_no={member_no}"
             f"&weekly_report_year_month={year_month}"
             f"&weekly_report_week_num=1"
         )
-
-        if not goto_with_retry(
-            page,
-            base_url,
-            f"{year_month}確認"
-        ):
+        if not goto(page, base_url):
             return False
-
         weeks = get_available_weeks(page)
-
         for week_num in weeks:
-
-            path = report_filepath(
-                username,
-                member_no,
-                year_month,
-                week_num
-            )
-
+            path = report_filepath(username, member_no, year_month, week_num)
             if not os.path.exists(path):
                 return False
-
     return True
+
 
 # 全ログイン情報についてスクレイピングを実行する
 def main():
     logins = load_logins()
     weekly_report_url_base = get_weekly_report_url_base()
-
     with sync_playwright() as p:
         for login in logins:
             scrape_login(p, login, weekly_report_url_base)

@@ -2,6 +2,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from logic.search import search_reports, DEFAULT_PAGE_SIZE
 from logic import runner
 from logic.register import save
 from logic.login import login_check
@@ -11,7 +12,6 @@ load_dotenv()
 
 app = FastAPI()
 frontend_url = os.getenv("VITE_FRONTEND_URL")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[frontend_url],
@@ -26,7 +26,6 @@ def login(req: LoginRequest):
     success, member_no = login_check(req)
     if not success:
         raise HTTPException(status_code=401, detail="ポータルへのログインに失敗しました")
-
     save(req, member_no)
     return {"member_no": member_no}
 
@@ -52,7 +51,5 @@ def scrape_status():
 
 
 @app.get("/search")
-def search():
-    return {
-        "message": "search-test"
-    }
+def search(keyword: str, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE):
+    return search_reports(keyword, page=page, page_size=page_size)

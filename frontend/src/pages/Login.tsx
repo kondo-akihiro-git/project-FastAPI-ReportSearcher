@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { Box, Button, Container, LinearProgress, Snackbar, TextField, Typography } from "@mui/material";
 import { useState } from "react";
 
-
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 const isLocal = window.location.origin === import.meta.env.VITE_LOCALHOST_URL;
 
@@ -17,52 +16,47 @@ export default function Login() {
   const [errorMessage, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-const login = async () => {
-  setErrorMessage("");
-  setLoading(true);
+  // ログイン情報を保存してスクレイピング画面へ遷移する
+  const login = async () => {
+    setErrorMessage("");
+    setLoading(true);
 
-  try {
-    const res = await fetch(
-      `${BACKEND_URL}/login`,
-      {
+    try {
+      const res = await fetch(`${BACKEND_URL}/login`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           basic_username: basicUsername,
           basic_password: basicPassword,
           portal_username: portalUsername,
-          portal_password: portalPassword
-        })
+          portal_password: portalPassword,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setErrorMessage(data.detail ?? "ログインに失敗しました");
+        return;
       }
-    );
-
-    if (!res.ok) {
-      const data = await res.json();
-      setErrorMessage(data.detail ?? "ログインに失敗しました");
-      return;
+      setOpen(true);
+      setTimeout(() => {
+        navigate("/scrape");
+      }, 1000);
+    } finally {
+      setLoading(false);
     }
-
-    setOpen(true);
-
-    setTimeout(() => {
-      navigate("/scrape");
-    }, 1000);
-
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
 
   return (
-    <Container maxWidth="sm" sx={{ mt: 8 }}>
+    <Container maxWidth={false} sx={{ mt: 8, px: { xs: 2, sm: 4 } }}>
       <Typography variant="h4" gutterBottom>
-        社内ポータル ログイン
+        週報検索システム
       </Typography>
-
-
+      <Typography color="text.secondary" sx={{ mb: 3 }}>
+        ログインすると週報データを自動で集め、キーワード検索できるようになります。
+      </Typography>
       <TextField
         label="Basic認証ID"
         fullWidth
@@ -70,8 +64,6 @@ const login = async () => {
         value={basicUsername}
         onChange={(e) => setBasicUsername(e.target.value)}
       />
-
-
       <TextField
         label="Basic認証Password"
         type="password"
@@ -80,8 +72,6 @@ const login = async () => {
         value={basicPassword}
         onChange={(e) => setBasicPassword(e.target.value)}
       />
-
-
       <TextField
         label="ポータルID"
         fullWidth
@@ -89,8 +79,6 @@ const login = async () => {
         value={portalUsername}
         onChange={(e) => setPortalUsername(e.target.value)}
       />
-
-
       <TextField
         label="ポータルPassword"
         type="password"
@@ -99,34 +87,30 @@ const login = async () => {
         value={portalPassword}
         onChange={(e) => setPortalPassword(e.target.value)}
       />
-
       {errorMessage && (
         <Typography color="error.main" sx={{ mt: 2 }}>
           {errorMessage}
         </Typography>
       )}
-
-<Button
-  variant="contained"
-  fullWidth
-  sx={{ mt: 3 }}
-  onClick={login}
-  disabled={loading}
->
-  {loading ? "ログイン中..." : "保存"}
-</Button>
-{loading && (
-  <Box sx={{ mt: 3 }}>
-    <LinearProgress />
-  </Box>
-)}
-
+      <Button
+        variant="contained"
+        fullWidth
+        sx={{ mt: 3 }}
+        onClick={login}
+        disabled={loading}
+      >
+        {loading ? "ログイン中..." : "ログイン"}
+      </Button>
+      {loading && (
+        <Box sx={{ mt: 3 }}>
+          <LinearProgress />
+        </Box>
+      )}
       <Snackbar
         open={open}
         autoHideDuration={3000}
         message="ログインしました"
       />
-
     </Container>
   );
 }
