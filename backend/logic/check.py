@@ -2,18 +2,37 @@
 import json
 import os
 from datetime import date, timedelta
+import boto3
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
 load_dotenv()
 
-LOGIN_FILE = "data/login/login.json"
+# <ローカルディレクトリ>
+# LOGIN_FILE = "data/login/login.json"
+
+# <S3バケット>
+S3_LOGIN_BUCKET = os.getenv("S3_LOGIN_BUCKET")
+S3_LOGIN_KEY = os.getenv("S3_LOGIN_KEY")
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION")
+
 REPORT_DIR = "data/report"
 START_YEAR_MONTH = (2024, 1)
 
 # ユーザー読み込み
 def load_login_users():
-    with open(LOGIN_FILE, encoding="utf-8") as f:
-        return json.load(f)
+    # <ローカルディレクトリ>
+    # with open(LOGIN_FILE, encoding="utf-8") as f:
+    #     return json.load(f)
 
+    # <S3バケット>
+    s3 = boto3.client("s3", region_name=AWS_REGION)
+    try:
+        obj = s3.get_object(Bucket=S3_LOGIN_BUCKET, Key=S3_LOGIN_KEY)
+        return json.loads(obj["Body"].read().decode("utf-8"))
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "NoSuchKey":
+            return []
+        raise
 
 # 2024年1月〜今月までの (year, month) を返す
 def get_target_duration():
