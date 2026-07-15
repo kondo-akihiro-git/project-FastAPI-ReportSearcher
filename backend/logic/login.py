@@ -1,14 +1,16 @@
+# backend/logic/login.py
 from playwright.sync_api import sync_playwright
 import os
+import re
 from dotenv import load_dotenv
 load_dotenv()
 
-def login_portal(req):
+def login_check(req):
     portal_url = os.getenv("PORTAL_LOGIN_URL")
     top_url = os.getenv("PORTAL_TOP_URL")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             http_credentials={
                 "username": req.basic_username,
@@ -24,7 +26,20 @@ def login_portal(req):
         page.wait_for_load_state("networkidle")
 
         if top_url == page.url:
+            member_no = _extract_member_no(page)
             browser.close()
-            return True
+            return True, member_no
+
         browser.close()
-        return False
+        return False, None
+
+
+def _extract_member_no(page) -> str | None:
+    try:
+        text = page.locator(".user-header p").inner_text()
+        match = re.search(r"ID[:：]\s*(\d+)", text)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None

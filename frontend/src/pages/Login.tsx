@@ -1,6 +1,6 @@
 // frontend/src/pages/Login.tsx
 import { useNavigate } from "react-router-dom";
-import { Button, Container, Snackbar, TextField, Typography } from "@mui/material";
+import { Box, Button, Container, LinearProgress, Snackbar, TextField, Typography } from "@mui/material";
 import { useState } from "react";
 
 
@@ -14,8 +14,14 @@ export default function Login() {
   const [portalUsername, setPortalUsername] = useState(isLocal ? import.meta.env.VITE_PORTAL_LOGIN_USERNAME : "");
   const [portalPassword, setPortalPassword] = useState(isLocal ? import.meta.env.VITE_PORTAL_LOGIN_PASSWORD : "");
   const [open, setOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const login = async () => {
+const login = async () => {
+  setErrorMessage("");
+  setLoading(true);
+
+  try {
     const res = await fetch(
       `${BACKEND_URL}/login`,
       {
@@ -32,16 +38,22 @@ export default function Login() {
       }
     );
 
-
-    const data = await res.json();
-    if (data.message === "login-test") {
-      setOpen(true);
-
-      setTimeout(() => {
-        navigate("/search");
-      }, 1000);
+    if (!res.ok) {
+      const data = await res.json();
+      setErrorMessage(data.detail ?? "ログインに失敗しました");
+      return;
     }
-  };
+
+    setOpen(true);
+
+    setTimeout(() => {
+      navigate("/scrape");
+    }, 1000);
+
+  } finally {
+    setLoading(false);
+  }
+};
 
 
   return (
@@ -88,16 +100,26 @@ export default function Login() {
         onChange={(e) => setPortalPassword(e.target.value)}
       />
 
+      {errorMessage && (
+        <Typography color="error.main" sx={{ mt: 2 }}>
+          {errorMessage}
+        </Typography>
+      )}
 
-      <Button
-        variant="contained"
-        fullWidth
-        sx={{ mt: 3 }}
-        onClick={login}
-      >
-        保存
-      </Button>
-
+<Button
+  variant="contained"
+  fullWidth
+  sx={{ mt: 3 }}
+  onClick={login}
+  disabled={loading}
+>
+  {loading ? "ログイン中..." : "保存"}
+</Button>
+{loading && (
+  <Box sx={{ mt: 3 }}>
+    <LinearProgress />
+  </Box>
+)}
 
       <Snackbar
         open={open}

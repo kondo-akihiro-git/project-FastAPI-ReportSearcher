@@ -7,14 +7,14 @@ import {
   Typography,
 } from "@mui/material";
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+
 export default function Search() {
   const [result, setResult] = useState("");
 
   const search = async () => {
-    const res = await fetch("http://127.0.0.1:8000/search");
-
+    const res = await fetch(`${BACKEND_URL}/search`);
     const data = await res.json();
-
     setResult(data.message);
   };
 
