@@ -7,6 +7,7 @@ import {
   CardActionArea,
   CardContent,
   Container,
+  LinearProgress,
   Pagination,
   TextField,
   Typography,
@@ -104,7 +105,14 @@ export default function Search() {
       </Box>
 
       <Box sx={{ mt: 4 }}>
-        {results.length > 0 ? (
+        {loading ? (
+          <>
+            <Typography color="text.secondary" sx={{ mb: 2 }}>
+              検索中です。少しお待ちください...
+            </Typography>
+            <LinearProgress />
+          </>
+        ) : results.length > 0 ? (
           <>
             {results.map((report, index) => (
               <Card key={index} sx={{ mt: 1.5 }}>
@@ -116,7 +124,7 @@ export default function Search() {
 
                     <Typography
                       variant="body2"
-                      sx={{ mt: 0.5, color: "action.disabled" }}
+                      sx={{ mt: 0.5, color: "text.secondary" }}
                       noWrap
                     >
                       {report.snippet && (

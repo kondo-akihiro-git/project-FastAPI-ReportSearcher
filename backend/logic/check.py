@@ -13,6 +13,8 @@ load_dotenv()
 # <S3バケット>
 S3_LOGIN_BUCKET = os.getenv("S3_LOGIN_BUCKET")
 S3_LOGIN_KEY = os.getenv("S3_LOGIN_KEY")
+S3_REPORT_BUCKET = os.getenv("S3_REPORT_BUCKET")
+S3_REPORT_KEY = os.getenv("S3_REPORT_KEY")
 AWS_REGION = os.getenv("AWS_DEFAULT_REGION")
 
 REPORT_DIR = "data/report"
@@ -56,18 +58,39 @@ def get_target_duration():
 
 # 週報のパス組み立て
 def report_filepath(username, member_no, year_month, week_num):
-    return os.path.join(REPORT_DIR, f"{year_month}-{week_num}-{username}-{member_no}.json")
 
+    # <ローカルディレクトリ>
+    # return os.path.join(REPORT_DIR, f"{year_month}-{week_num}-{username}-{member_no}.json")
+
+    # <S3バケット>
+    filename = f"{year_month}-{week_num}-{username}-{member_no}.json"
+    return f"{S3_REPORT_KEY}/{filename}" 
 
 # 週報ファイル存在確認
 def check_reports_for_user(login):
     username = login["portal_username"]
     member_no = login["member_no"]
+
+    # <S3バケット>
+    s3 = boto3.client("s3", region_name=AWS_REGION)
     for year_month, week_num in get_target_duration():
-        path = report_filepath(username, member_no, year_month, week_num)
-        if not os.path.exists(path):
-            print(f"不足ファイル: {path}")
-            return False
+
+        # <ローカルディレクトリ>
+        # path = report_filepath(username, member_no, year_month, week_num)
+        # if not os.path.exists(path):
+        #     print(f"不足ファイル: {path}")
+        #     return False
+
+        # <S3バケット>
+        key = report_filepath(username, member_no, year_month, week_num)
+        try:
+            s3.head_object(Bucket=S3_REPORT_BUCKET, Key=key)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "404":
+                print(f"不足ファイル: s3://{S3_REPORT_BUCKET}/{key}")
+                return False
+            raise
+
     return True
 
 

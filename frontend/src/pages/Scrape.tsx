@@ -134,7 +134,7 @@ export default function Scrape() {
             onClick={handleStart}
             disabled={isRunning}
           >
-            {isRunning ? "取得中..." : "取得を開始する"}
+            {isRunning ? "確認中..." : "確認を開始する"}
           </Button>
         </>
       )}

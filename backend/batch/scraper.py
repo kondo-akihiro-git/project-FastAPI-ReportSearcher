@@ -7,11 +7,20 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
-
+import boto3
+from botocore.exceptions import ClientError
 load_dotenv()
 
-LOGIN_FILE = "data/login/login.json"
-REPORT_DIR = "data/report"
+# <ローカルディレクトリ>
+# LOGIN_FILE = "data/login/login.json"
+# REPORT_DIR = "data/report"
+
+# <S3バケット>
+S3_REPORT_BUCKET = os.getenv("S3_REPORT_BUCKET")
+S3_REPORT_KEY = os.getenv("S3_REPORT_KEY")
+S3_LOGIN_BUCKET = os.getenv("S3_LOGIN_BUCKET")
+S3_LOGIN_KEY = os.getenv("S3_LOGIN_KEY")
+
 START_YEAR_MONTH = (2024, 1) 
 PAGE_TIMEOUT_MS = 45000
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
@@ -19,8 +28,14 @@ BLOCKED_RESOURCE_TYPES = {"image", "media", "font", "stylesheet"}
 
 # ログイン情報一覧を読み込む
 def load_logins() -> list[dict]:
-    with open(LOGIN_FILE, encoding="utf-8") as f:
-        return json.load(f)
+    # <ローカルディレクトリ>
+    # with open(LOGIN_FILE, encoding="utf-8") as f:
+    #     return json.load(f)
+    
+    # <S3バケット>
+    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION"))
+    obj = s3.get_object(Bucket=S3_LOGIN_BUCKET, Key=S3_LOGIN_KEY)
+    return json.loads(obj["Body"].read().decode("utf-8"))
 
 
 # 週報一覧ページのURLを組み立てる
@@ -50,16 +65,33 @@ def get_target_year_months() -> list[tuple[int, int]]:
 # 保存先のファイルパスを組み立てる
 def report_filepath(username: str, member_no: str, year_month: str, week_num: int) -> str:
     filename = f"{year_month}-{week_num}-{username}-{member_no}.json"
-    return os.path.join(REPORT_DIR, filename)
 
+    # <ローカルディレクトリ>
+    # return os.path.join(REPORT_DIR, filename)
+
+    # <S3バケット>
+    return f"{S3_REPORT_KEY}{filename}"
 
 # 週報データをJSONファイルに保存する
 def save_report(username: str, member_no: str, report: dict):
-    os.makedirs(REPORT_DIR, exist_ok=True)
-    path = report_filepath(username, member_no, report["year_month"], report["week_num"])
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
-    print(f"  保存しました: {path}")
+    # <ローカルディレクトリ>
+    # os.makedirs(REPORT_DIR, exist_ok=True)
+    # path = report_filepath(username, member_no, report["year_month"], report["week_num"])
+    # with open(path, "w", encoding="utf-8") as f:
+    #     json.dump(report, f, indent=2, ensure_ascii=False)
+    # print(f"  保存しました: {path}")
+
+    # <S3バケット>
+    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION"))
+    s3_key = f"{S3_REPORT_KEY}/{report['year_month']}-{report['week_num']}-{username}-{member_no}.json"
+    body = json.dumps(report, indent=2, ensure_ascii=False).encode("utf-8")
+    s3.put_object(
+        Bucket=S3_REPORT_BUCKET,
+        Key=s3_key,
+        Body=body,
+        ContentType="application/json",
+    )
+    print(f"  S3 保存しました: s3://{S3_REPORT_BUCKET}/{s3_key}")
 
 
 # 画像・CSS・フォント・動画などをブロックしてページを軽量化する
@@ -238,6 +270,8 @@ def check_existing_reports(page, login: dict, weekly_report_url_base: str) -> bo
     username = login["portal_username"]
     member_no = login["member_no"]
     year_months = [f"{y:04d}-{m:02d}" for y, m in get_target_year_months()]
+    # <S3バケット>
+    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION"))
     for year_month in year_months:
         base_url = (
             f"{weekly_report_url_base}"
@@ -250,8 +284,18 @@ def check_existing_reports(page, login: dict, weekly_report_url_base: str) -> bo
         weeks = get_available_weeks(page)
         for week_num in weeks:
             path = report_filepath(username, member_no, year_month, week_num)
-            if not os.path.exists(path):
-                return False
+
+            # <ローカルディレクトリ>
+            # if not os.path.exists(path):
+                # return False
+
+            # <S3バケット>
+            try:
+                s3.head_object(Bucket=S3_REPORT_BUCKET, Key=path)
+            except ClientError as exc:
+                if exc.response.get("Error", {}).get("Code") == "404":
+                    return False
+                raise
     return True
 
 

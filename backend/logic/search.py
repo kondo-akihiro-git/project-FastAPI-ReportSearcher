@@ -3,18 +3,21 @@ import json
 import os
 import re
 from typing import Optional
-
+import boto3
+from botocore.exceptions import ClientError
 from dotenv import load_dotenv
-
 load_dotenv()
 
 PORTAL_WEEKLY_REPORT_URL = os.getenv("PORTAL_WEEKLY_REPORT_URL")
-REPORT_DIR = "data/report"
+# <ローカルディレクトリ>
+# REPORT_DIR = "data/report"
+
+# <S3バケット>
+S3_REPORT_BUCKET = os.getenv("S3_REPORT_BUCKET")
+S3_REPORT_KEY = os.getenv("S3_REPORT_KEY")
 
 CONTEXT_CHARS = 10  # キーワード前後に表示する文字数
 DEFAULT_PAGE_SIZE = 5
-
-# 半角/全角スペース・改行(\n, \r)・タブなど、あらゆる空白文字をまとめて拾う
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
@@ -57,67 +60,82 @@ def search_reports(keyword: str, page: int = 1, page_size: int = DEFAULT_PAGE_SI
 
     all_results = []
 
-    for filename in os.listdir(REPORT_DIR):
-        if not filename.endswith(".json"):
-            continue
+    # <ローカルディレクトリ>
+    # for filename in os.listdir(REPORT_DIR):
+    #     if not filename.endswith(".json"):
+    #         continue
+    #     path = os.path.join(REPORT_DIR, filename)
+    #     with open(path, encoding="utf-8") as f:
+    #         report = json.load(f)
 
-        path = os.path.join(REPORT_DIR, filename)
+    # <S3バケット>
+    if os.getenv("S3_REPORT_BUCKET") and os.getenv("S3_REPORT_KEY"):
+        s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION"))
+        paginator = s3.get_paginator("list_objects_v2")
+        for page_resp in paginator.paginate(Bucket=os.getenv("S3_REPORT_BUCKET"), Prefix=os.getenv("S3_REPORT_KEY")):
+            for obj in page_resp.get("Contents", []):
+                key = obj.get("Key")
+                if not key or not key.endswith(".json"):
+                    continue
+                try:
+                    resp = s3.get_object(Bucket=os.getenv("S3_REPORT_BUCKET"), Key=key)
+                    report = json.loads(resp["Body"].read().decode("utf-8"))
+                except ClientError:
+                    # 取得に失敗したオブジェクトはスキップ（運用に合わせて変更可）
+                    continue
 
-        with open(path, encoding="utf-8") as f:
-            report = json.load(f)
+                section = None
+                report_date = ""
+                snippet = None
 
-        section = None
-        report_date = ""
-        snippet = None
+                # (表示ラベル, 対象テキスト) のリスト
+                text_sections = [
+                    ("直近で学んだこと", report["studying_memo"]),
+                    ("コメント欄", report["comment"]),
+                    ("リーダーからの返信", report["replies"]["leader"]),
+                    ("社長からの返信", report["replies"]["president"]),
+                    ("その他の返信", report["replies"]["other"]),
+                ]
 
-        # (表示ラベル, 対象テキスト) のリスト
-        text_sections = [
-            ("直近で学んだこと", report["studying_memo"]),
-            ("コメント欄", report["comment"]),
-            ("リーダーからの返信", report["replies"]["leader"]),
-            ("社長からの返信", report["replies"]["president"]),
-            ("その他の返信", report["replies"]["other"]),
-        ]
+                for label, text in text_sections:
+                    normalized = normalize_text(text)
+                    if keyword in normalized:
+                        section = label
+                        snippet = build_snippet(normalized, keyword)
+                        break
 
-        for label, text in text_sections:
-            normalized = normalize_text(text)
-            if keyword in normalized:
-                section = label
-                snippet = build_snippet(normalized, keyword)
-                break
+                if not section:
+                    for daily in report["daily_reports"]:
+                        normalized = normalize_text(daily["content"])
+                        if keyword in normalized:
+                            section = "日報"
+                            report_date = daily["date"]
+                            snippet = build_snippet(normalized, keyword)
+                            break
 
-        if not section:
-            for daily in report["daily_reports"]:
-                normalized = normalize_text(daily["content"])
-                if keyword in normalized:
-                    section = "日報"
-                    report_date = daily["date"]
-                    snippet = build_snippet(normalized, keyword)
-                    break
+                if section:
+                    # 「日報」のときだけ日付をラベルに埋め込む
+                    section_label = (
+                        f"{section}（{report_date}）"
+                        if section == "日報" and report_date
+                        else section
+                    )
 
-        if section:
-            # 「日報」のときだけ日付をラベルに埋め込む
-            section_label = (
-                f"{section}（{report_date}）"
-                if section == "日報" and report_date
-                else section
-            )
-
-            all_results.append(
-                {
-                    "year_month": report["year_month"],
-                    "week_num": report["week_num"],
-                    "member_no": report["member_no"],
-                    "section": section_label,
-                    "snippet": snippet,
-                    "url": (
-                        f"{PORTAL_WEEKLY_REPORT_URL}"
-                        f"?member_no={report['member_no']}"
-                        f"&weekly_report_year_month={report['year_month']}"
-                        f"&weekly_report_week_num={report['week_num']}"
-                    ),
-                }
-            )
+                    all_results.append(
+                        {
+                            "year_month": report["year_month"],
+                            "week_num": report["week_num"],
+                            "member_no": report["member_no"],
+                            "section": section_label,
+                            "snippet": snippet,
+                            "url": (
+                                f"{PORTAL_WEEKLY_REPORT_URL}"
+                                f"?member_no={report['member_no']}"
+                                f"&weekly_report_year_month={report['year_month']}"
+                                f"&weekly_report_week_num={report['week_num']}"
+                            ),
+                        }
+                    )
 
     total = len(all_results)
     start = (page - 1) * page_size
