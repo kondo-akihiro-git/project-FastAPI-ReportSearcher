@@ -2,6 +2,7 @@
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from mangum import Mangum
 from logic.search import search_reports, DEFAULT_PAGE_SIZE
 from logic import runner
 from logic.register import save
@@ -53,3 +54,6 @@ def scrape_status():
 @app.get("/search")
 def search(keyword: str, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE):
     return search_reports(keyword, page=page, page_size=page_size)
+
+
+handler = Mangum(app)
